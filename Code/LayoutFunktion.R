@@ -7,6 +7,7 @@ plotlyLayoutDZ<-function(p,
                          includeLegend=FALSE,
                          ylim=c(NULL,NULL),
                          xlim=c(NULL,NULL),
+                         ytickdist=NULL,
                          width=577.5,
                          height=450,
                          tooltip="text",
@@ -23,7 +24,8 @@ plotlyLayoutDZ<-function(p,
                          margin_top=50,
                          hoverformat=NULL,
                          toImageButton=FALSE,
-                         itemclick="toggle"){
+                         itemclick="toggle",
+                         doubleclick="toggleothers"){
 
 
 
@@ -41,6 +43,12 @@ plotlyLayoutDZ<-function(p,
     xlim <- c(NULL, NULL)
   }
 
+  if(!is.null(ytickdist)){
+    ytickvals <- seq(ylim[1], ylim[2], by = ytickdist)
+  } else {
+    ytickvals <- NULL
+  }
+
   if (includeLegend){
     margin_top <- margin_top+30
 
@@ -49,6 +57,7 @@ plotlyLayoutDZ<-function(p,
   PlotLayoutDZ<-
     p%>%
     layout(
+      autosize=FALSE,
     hovermode=hovermode,
     hoverdistance=hoverdistance,
     plot_bgcolor  = "rgba(0,0,0,0)",   # inside the axes
@@ -105,6 +114,8 @@ plotlyLayoutDZ<-function(p,
      # gridcolor = "#181c44",
       ticks = "outside",   # draw ticks to the left of the axis line
       ticklen= 8,
+      dtick=ytickdist, # set the distance between ticks
+    # tickvals=ytickvals,
       tickcolor          = "rgba(0,0,0,0)",#transparent
     ticklabelposition  = "outside",  # (explicit; default since Plotly 2.15)
     # set limit of yaxis to a and b
@@ -133,7 +144,10 @@ plotlyLayoutDZ<-function(p,
       bordercolor = "rgba(0,0,0,0)",#transparent
       borderwidth = 0,
       itemclick  = itemclick,
-      itemdoubleclick  = FALSE
+      itemdoubleclick  = doubleclick,
+      itemwidth  = 10,          # ← fixed legend width (px ≥ 30)
+      entrywidth=200,
+      itemsizing = "constant"   # don’t let symbols shrink
     ),
     #conditionally keep Legend
     showlegend = includeLegend,
@@ -146,6 +160,7 @@ plotlyLayoutDZ<-function(p,
             scrollZoom     = FALSE,    # turn off wheel zoom
             doubleClick    = FALSE,    # ignore double-click to autoscale
             editable       = FALSE,     # forbid any on-plot editing
+            responsive = FALSE, # make the plot responsive
             locale = "de"
           )
 

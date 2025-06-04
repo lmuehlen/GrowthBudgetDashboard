@@ -998,7 +998,7 @@ BundeshaushaltPlotly<-plot_ly(
     hovertemplate = "%{text}<extra></extra>",
     mode="lines+markers",
     name="Bundesausgaben (Ist)",
-    line=list(color="#181c44",width=2,dash="dash"),
+    line=list(color="#181c44",width=2,dash="solid"),
     marker=list(color="#181c44")#,
   #  showlegend=FALSE
   )%>%
@@ -1006,6 +1006,7 @@ BundeshaushaltPlotly<-plot_ly(
                  subtitle="In Prozent des BIP",
                  ylim=c(0,20.1),
                  xlim=c(2013.9,2025.1),
+                 ytickdist=2,
                  includeLegend = TRUE,
                  tooltip_size=16,
                  hoverdistance = 10,
@@ -1014,9 +1015,385 @@ BundeshaushaltPlotly<-plot_ly(
 
 BundeshaushaltPlotly
 
-htmlwidgets::saveWidget(widget = BundeshaushaltPlotly, file="Bundesausgaben.html",selfcontained = TRUE)
+htmlwidgets::saveWidget(widget = BundeshaushaltPlotly, file="BundesausgabenOld.html",selfcontained = TRUE)
 ```
 
+
+# Haushaltsanalyse
+```{r}
+HaushaltsanalysePcBIP<-read_excel("Data/Haushaltsanalyse v10.xlsx",sheet = 1,range = "A1:P71")%>% #adjust range if column added
+  filter(!is.na(Aggregat))%>%
+  select(-'ID/Code')
+
+HaushaltsanalyseMrdEur<-read_excel("Data/Haushaltsanalyse v10.xlsx",sheet = 2,range = "A1:P71")%>% #adjust range if column added
+  filter(!is.na(Aggregat))%>%
+  select(-'ID/Code')
+
+
+HaushaltsanalyseData<-rbind(HaushaltsanalysePcBIP,HaushaltsanalyseMrdEur)%>%
+  pivot_longer(-c(Aggregat,Titel,Einheit),values_to = "values",names_to = "Jahr")%>%
+  pivot_wider(names_from = Einheit,values_from = values)
+
+
+
+```
+
+## Bundesausgaben
+```{r}
+#TODO: make English
+plotBundesausgaben<-function(data,filename,path="output/Juni2025",language="DE",with=577.7,height=519.75){
+BundesausgabenData<-data%>%
+  filter(Aggregat=="Gesamtausgaben des Bundes")%>%
+  mutate(
+    variable=plyr::revalue(Titel,c("Sonstiges"="Sonstiges\n (inkl. globale Minderausgabe)",
+                                   "Verwaltung (inkl. Sicherheitsbehörden)"="Verwaltung\n (inkl. Sicherheitsbehörden)",
+                                "Historische Ereignisse & Altlasten"="Hist. Ereignisse & Altlasten",
+                                "Zinsen"="Zinsen",
+                                "Internationales"="Internationales",
+                                "Verteidigung"="Verteidigung",
+                                "Öffentliche Leistungen"="Öff. Leistungen",
+                                "Subventionen an Haushalte & Unternehmen"="Subventionen\n (Haushalte & Unternehmen)"
+                                )),
+    variable=factor(variable,levels=c("Sonstiges\n (inkl. globale Minderausgabe)",
+                                "Subventionen\n (Haushalte & Unternehmen)",
+                                "Verwaltung\n (inkl. Sicherheitsbehörden)",
+                                "Zinsen",
+                                "Internationales",
+                                "Verteidigung",
+                                "Öff. Leistungen",
+                                "Hist. Ereignisse & Altlasten"
+                                )),
+    tooltip = glue(
+      "<span>",
+      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+    )
+  )
+
+BundesausgabenPlotly<-plot_ly(
+  width=width,
+  height=height,
+  data        = BundesausgabenData,
+  x           = ~Jahr,
+  y           = ~PcBIP,
+  color       = ~variable,
+  colors      = c("#BFBFBF","#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776"),
+  text        = ~tooltip,
+  hoverinfo   = "text",
+  hovertemplate = "%{text}<extra></extra>",
+  type        = "scatter",
+  mode        = "lines+markers",        # no markers or lines → filled area only
+  #line       = list(width = 0),
+  stackgroup  = "Bundeshaushalt"
+)%>%
+  plotlyLayoutDZ(title="Gesamtausgaben des Bundes",
+                 subtitle="In Prozent des BIP",
+                 ylim=c(-2.1,16.1),
+                 ytickdist=2,
+                 #xlim=c(2013.9,2025.1),
+                 includeLegend = TRUE,
+                 tooltip_size=16,
+                 hoverdistance = 10,
+                 margin_top = 140,
+                 tooltip_bordercolor="white")
+
+BundesausgabenPlotly<-partial_bundle(BundesausgabenPlotly)
+
+htmlwidgets::saveWidget(widget = BundesausgabenPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "Plotlydependencies")
+}
+```
+
+## Bundeseinnahmen
+```{r}
+BundeseinnahmenData<-HaushaltsanalyseData%>%
+  filter(Aggregat=="Gesamteinnahmen des Bundes")%>%
+  mutate(
+    variable=factor(Titel,levels=c("Umsatz- & Einfuhrumsatzsteuer",
+                                   "Einkommen- & Lohnsteuer",
+                                   "Kapitalertragssteuer",
+                                   "Körperschaftsteuer",
+                                   "Energiesteuern",
+                                   "Sonstige Steuern",
+                                   "Sonstige Einnahmen",
+                                   "Nettokreditaufnahme"
+                                   ),
+                    
+                    ),
+    tooltip = glue(
+      "<span>",
+      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+    )
+  )
+
+BundeseinnahmenPlotly<-plot_ly(
+  width=577.7,
+  height=519.75,
+  data        = BundeseinnahmenData,
+  x           = ~Jahr,
+  y           = ~PcBIP,
+  color       = ~variable,
+  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776","#BFBFBF"),
+  text        = ~tooltip,
+  hoverinfo   = "text",
+  hovertemplate = "%{text}<extra></extra>",
+  type        = "scatter",
+  mode        = "lines+markers",        # no markers or lines → filled area only
+  #line       = list(width = 0),
+  stackgroup  = "Bundeshaushalt"
+)%>%
+  plotlyLayoutDZ(title="Gesamteinnahmen des Bundes",
+                 subtitle="In Prozent des BIP",
+                 ylim=c(-0.1,20.1),
+                 ytickdist=2,
+                 #xlim=c(2013.9,2025.1),
+                 includeLegend = TRUE,
+                 tooltip_size=16,
+                 hoverdistance = 10,
+                 margin_top = 120,
+                 tooltip_bordercolor="white")
+
+BundeseinnahmenPlotly<-partial_bundle(BundeseinnahmenPlotly)
+
+htmlwidgets::saveWidget(widget = BundeseinnahmenPlotly, file="Bundeseinnahmen.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+```
+
+
+## Investitionen des Bundes
+```{r}
+BundesinvestitionenData<-HaushaltsanalyseData%>%
+  filter(Aggregat=="Investitionen des Bundes")%>%
+  mutate(
+    #variable=Titel,
+    variable=factor(Titel,levels=c(
+                                   "Eisenbahn",
+                                   "Wohnen",
+                                   "Digitales & Innovation",
+                                   "Straßen",
+                                   "Klima",
+                                   "Wissenschaft & Forschung",
+                                   "Bildung",
+                                   "Energie",
+                                   "Sonstiges"
+                                   ),
+
+                   ),
+    tooltip = glue(
+      "<span>",
+      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+    )
+  )
+
+InvestitionenOrder<-BundesinvestitionenData%>%filter(Jahr==2025 & Titel!="Sonstiges")%>%
+  arrange(-PcBIP)%>%pull(Titel)
+
+BundesinvestitionenPlotly<-plot_ly(
+  width=577.7,
+  height=519.75,
+  data        = BundesinvestitionenData,
+  x           = ~Jahr,
+  y           = ~PcBIP,
+  color       = ~variable,
+  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776","#A65FBD","#BFBFBF"),
+  text        = ~tooltip,
+  hoverinfo   = "text",
+  hovertemplate = "%{text}<extra></extra>",
+  type        = "scatter",
+  mode        = "lines+markers",        # no markers or lines → filled area only
+  #line       = list(width = 0),
+  stackgroup  = "Bundeshaushalt"
+)%>%
+  plotlyLayoutDZ(title="Investitionen des Bundes",
+                 subtitle="In Prozent des BIP",
+                 ylim=c(-0.1,3.1),
+                 ytickdist=1,
+                 #xlim=c(2013.9,2025.1),
+                 includeLegend = TRUE,
+                 tooltip_size=16,
+                 hoverdistance = 10,
+                 margin_top = 130,
+                 tooltip_bordercolor="white")
+
+BundesinvestitionenPlotly<-partial_bundle(BundesinvestitionenPlotly)
+
+htmlwidgets::saveWidget(widget = BundesinvestitionenPlotly, file="Bundesinvestitionen.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+```
+
+## Öffentliche Leistungen des Bundes
+```{r}
+ÖffentlicheLeistungenData<-HaushaltsanalyseData%>%
+  filter(Aggregat=="Öffentliche Leistungen")%>%
+  mutate(
+    #variable=Titel,
+    variable=factor(Titel,levels=c("Verkehr",
+                                   "Forschung & Entwicklung",
+                                   "Klima",
+                                   "Wohnen & Stadtentwicklung",
+                                   "Digitales",
+                                   "Bildung",
+                                   "Demokratie & Kultur",
+                                   "Integration",
+                                   "Gesundheit",
+                                   "Sonstiges"    
+                                   ),
+                   ),
+    tooltip = glue(
+      "<span>",
+      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+    )
+  )
+
+ÖffentlicheLeistungenData%>%filter(Jahr==2025 & Titel!="Sonstiges")%>%
+  arrange(-PcBIP)%>%pull(Titel)
+
+ÖffentlicheLeistungenPlotly<-plot_ly(
+  width=577.7,
+  height=519.75,
+  data        = ÖffentlicheLeistungenData,
+  x           = ~Jahr,
+  y           = ~PcBIP,
+  color       = ~variable,
+  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776","#A65FBD","#BFBFBF"),
+  text        = ~tooltip,
+  hoverinfo   = "text",
+  hovertemplate = "%{text}<extra></extra>",
+  type        = "scatter",
+  mode        = "lines+markers",        # no markers or lines → filled area only
+  #line       = list(width = 0),
+  stackgroup  = "Bundeshaushalt"
+)%>%
+  plotlyLayoutDZ(title="Öffentliche Leistungen des Bundes",
+                 subtitle="In Prozent des BIP",
+                 ylim=c(-0.1,2.1),
+                 ytickdist=0.5,
+                 #xlim=c(2013.9,2025.1),
+                 includeLegend = TRUE,
+                 tooltip_size=16,
+                 hoverdistance = 10,
+                 margin_top = 130,
+                 tooltip_bordercolor="white")
+
+ÖffentlicheLeistungenPlotly<-partial_bundle(ÖffentlicheLeistungenPlotly)
+
+htmlwidgets::saveWidget(widget = ÖffentlicheLeistungenPlotly, file="ÖffentlicheLeistungen.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+```
+
+## Subventionen des Bundes an Haushalte
+```{r}
+SubventionenHaushalteData<-HaushaltsanalyseData%>%
+  filter(Aggregat=="Subventionen an Haushalte")%>%
+  mutate(
+    #variable=Titel,
+    variable=factor(Titel,levels=c("Rente",
+                                   "Arbeitslosigkeit",
+                                   "Gesundheit & Pflege",
+                                   "Gebäudeförderung",
+                                   "Familien",
+                                   "Wohnen",
+                                   "Bildung",
+                                   "Sonstiges"
+                                   ),
+                   ),
+    tooltip = glue(
+      "<span>",
+      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+    )
+  )
+
+SubventionenHaushalteData%>%filter(Jahr==2025 & Titel!="Sonstiges")%>%
+  arrange(-PcBIP)%>%pull(Titel)
+
+SubventionenHaushaltePlotly<-plot_ly(
+  width=577.7,
+  height=519.75,
+  data        = SubventionenHaushalteData,
+  x           = ~Jahr,
+  y           = ~PcBIP,
+  color       = ~variable,
+  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776","#A65FBD","#BFBFBF"),
+  text        = ~tooltip,
+  hoverinfo   = "text",
+  hovertemplate = "%{text}<extra></extra>",
+  type        = "scatter",
+  mode        = "lines+markers",        # no markers or lines → filled area only
+  #line       = list(width = 0),
+  stackgroup  = "Bundeshaushalt"
+)%>%
+  plotlyLayoutDZ(title="Subventionen des Bundes an Haushalte",
+                 subtitle="In Prozent des BIP",
+                 ylim=c(-0.1,8.1),
+                 ytickdist=2,
+                 #xlim=c(2013.9,2025.1),
+                 includeLegend = TRUE,
+                 tooltip_size=16,
+                 hoverdistance = 10,
+                 margin_top = 100,
+                 tooltip_bordercolor="white")
+
+SubventionenHaushaltePlotly<-partial_bundle(SubventionenHaushaltePlotly)
+
+htmlwidgets::saveWidget(widget = SubventionenHaushaltePlotly, file="SubventionenHaushalte.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+```
+
+
+## Subventionen des Bundes an Unternehmen
+```{r}
+SubventionenUnternehmenData<-HaushaltsanalyseData%>%
+  filter(Aggregat=="Subventionen an Unternehmen")%>%
+  mutate(
+    variable=plyr::revalue(Titel,c("Strompreise"="Strompreise",
+                                   "Digitales"="Digitales",
+                                   "Klima & Energie (ohne Strompreise)"="Klima & Energie\n (ohne Strompreise)",
+                                   "Sonstige Innovation & Forschung"="Sonst. Innovation & Forschung",
+                                   "Land- & Forstwirtschaft"="Land- & Forstwirtschaft",
+                                   "Sonstiges"="Sonstiges"
+                                   )),
+    variable=factor(variable,levels=c("Strompreise",
+                                   "Digitales",
+                                   "Klima & Energie\n (ohne Strompreise)",
+                                   "Sonst. Innovation & Forschung",
+                                   "Land- & Forstwirtschaft",   
+                                   "Sonstiges"
+                                   ),
+                   ),
+    tooltip = glue(
+      "<span>",
+      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+    )
+  )
+
+SubventionenUnternehmenData%>%filter(Jahr==2025 & Titel!="Sonstiges")%>%
+  arrange(-PcBIP)%>%pull(Titel)
+
+SubventionenUnternehmenPlotly<-plot_ly(
+  width=577.7,
+  height=519.75,
+  data        = SubventionenUnternehmenData,
+  x           = ~Jahr,
+  y           = ~PcBIP,
+  color       = ~variable,
+  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#BE4776","#A65FBD","#BFBFBF"),
+  text        = ~tooltip,
+  hoverinfo   = "text",
+  hovertemplate = "%{text}<extra></extra>",
+  type        = "scatter",
+  mode        = "lines+markers",        # no markers or lines → filled area only
+  #line       = list(width = 0),
+  stackgroup  = "Bundeshaushalt"
+)%>%
+  plotlyLayoutDZ(title="Subventionen des Bundes an Unternehmen",
+                 subtitle="In Prozent des BIP",
+                 ylim=c(-0.02,1.02),
+                 ytickdist=0.2,
+                 #xlim=c(2013.9,2025.1),
+                 includeLegend = TRUE,
+                 tooltip_size=16,
+                 hoverdistance = 10,
+                 margin_top = 110,
+                 tooltip_bordercolor="white")
+
+SubventionenUnternehmenPlotly<-partial_bundle(SubventionenUnternehmenPlotly)
+
+htmlwidgets::saveWidget(widget = SubventionenUnternehmenPlotly, file="SubventionenUnternehmen.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+```
 
 # Archiv
 ### Sozialversicherungspflichtige

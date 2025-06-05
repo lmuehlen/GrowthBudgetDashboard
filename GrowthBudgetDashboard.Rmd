@@ -38,6 +38,7 @@ source("Code/LayoutFunktion.R")
 
 #reticulate::install_python()
 #reticulate::py_install("plotly", pip = TRUE)
+gen_auth_save("genesis")
 ```
 
 
@@ -59,6 +60,7 @@ source("Code/LayoutFunktion.R")
     -   <https://gemeinschaftsdiagnose.de/wp-content/uploads/2025/04/IfW_Kiel_GD_1_2025_web.pdf>
 
 ```{r}
+genBIPData<-function(){
 BIPDestatis<-gen_table("81000-0002","genesis")%>%
   filter(
     (value_variable_code=="VGR014" & `4_variable_attribute_code`=="VGRPVK")|
@@ -78,6 +80,7 @@ BIPDestatis<-gen_table("81000-0002","genesis")%>%
          var=plyr::revalue(value_variable_code,c("VGR014"="BIP","BIP005"="BIPgrowth"))
          )%>%
   select(time,value,type,var)%>%
+  filter(!is.na(value))%>%
   pivot_wider(values_from = value,names_from = var)
 
 
@@ -122,37 +125,23 @@ BIPdata<-rbind(BIPDestatis,BIPProg)%>%
     BIPnorm = 100*BIP / mean(BIP[year(time) == 2022], na.rm = TRUE),
     BIPTrendNorm = 100*BIPTrend / mean(BIP[year(time) == 2022], na.rm = TRUE) #normalized by actual BIP
           )
+return(BIPdata)
+}
 
-
+BIPdata<-genBIPData()
 ```
 
 
 ```{r}
-# BIPplot <- BIPdata %>%                             # <<-- your data with BIP_idx as BIP
-#   mutate(
-#     q_lab   = paste0(year(time), " Q", quarter(time)),
-#     tooltip = glue(
-#       "<span><b>{q_lab}</b><br>",
-#       "BIP&nbsp;(2022 = 100): {scales::number(BIPnorm,  accuracy = 0.1, decimal.mark = ',')}<br>",
-#       "BIP&nbsp;: {scales::number(BIP,      accuracy = 0.1, decimal.mark = ',')} Mrd. €<br>",
-#       "Veränderung Vorquartal: {scales::number(BIPgrowth, accuracy = 0.1, decimal.mark = ',')}%<br>",
-#       "Veränderung Vorjahr: {scales::number(BIPGrowthYearly, accuracy = 0.1, decimal.mark = ',')}%<br>",
-#       "{type}</span>"
-#       
-#     )
-#   )
 
-
-BIPplot <- BIPdata %>%                             # <<-- your data with BIP_idx as BIP
+plotBIP<-function(data,filename="Bundesausgaben",path="output/GBTJuni2025/",language="DE",width=577.7,height=519.75){
+  
+BIPplot <- data %>% 
   mutate(
     q_lab   = paste0(year(time), " Q", quarter(time)),
     tooltip = glue(
-      #"<span><b>{q_lab}</b><br>",
       "BIP: {scales::number(BIP, accuracy = 0.1, decimal.mark = ',',big.mark='.')} Mrd. € <br>",
-      #({scales::number(BIPnorm,  accuracy = 0.1, decimal.mark = ',')})
-      "Wachstum ggü. Vorquartal: {scales::number(BIPgrowth, accuracy = 0.1, decimal.mark = ',',big.mark='.',style_positive='plus')} %",
-      #({scales::number(BIPGrowthYearly, accuracy = 0.1, decimal.mark = ',')})
-      "</span>"
+      "Wachstum ggü. Vorquartal: {scales::number(BIPgrowth, accuracy = 0.1, decimal.mark = ',',big.mark='.',style_positive='plus')} %</span>"
       
     ),
     tooltip_trend=glue(
@@ -162,7 +151,7 @@ BIPplot <- BIPdata %>%                             # <<-- your data with BIP_idx
   )
 
 
-BIPPlotly <- plot_ly()%>% 
+BIPPlotly <- plot_ly(width=width,height=height)%>% 
   add_trace(
   data=BIPplot%>%filter(time>=max(BIPDestatis%>%filter(type=="Destatis")%>%pull(time))),
   inherit=FALSE,
@@ -222,26 +211,29 @@ BIPPlotly <- plot_ly()%>%
   plotlyLayoutDZ(
     title="Bruttoinlandsprodukt",
     subtitle="Preis-, saison- und kalenderbereinigt, 2022 = 100",
-    ylim=c(85-0.1,115+0.1),
+    ylim=c(85-0.1,115.7),
+    ytickdist=5,
     xlim=c(ymd("2014-11-01"),ymd("2026-11-30")),
     includeLegend = TRUE,
     tooltip_size=16,
-    hoverdistance = 10,
+    hoverdistance = 6,
+    margin_top = 70,
     #hovermode="closest",
-    hoverformat="%Y Q%q",
-    toImageButton=TRUE
+    hoverformat="%Y Q%q"
   )
 
-BIPPlotly
-htmlwidgets::saveWidget(widget = BIPPlotly, file="BIP.html",selfcontained = TRUE)
-#save_image(BIPPlotly, "./BIP.png",  width = 1600, height = 900, scale = 1)
+BIPPlotly<-partial_bundle(BIPPlotly)
+htmlwidgets::saveWidget(widget = BIPPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
 
+plotBIP(BIPdata,"BIP")
 
 ```
 
 
 ## Inflation 
 ```{r}
+genInflationDestatis<-function(){
 InflationDestatis<-gen_cube("61111BM001")%>%
    mutate(
          month=gsub("MONAT(.*)","\\1\\2",MONAT)%>%as.numeric(),
@@ -254,49 +246,35 @@ InflationDestatis<-gen_cube("61111BM001")%>%
   mutate(inflation=100*(preisindex/lag(preisindex,12)-1),
          type="Destatis")%>%
   select(time,preisindex,inflation,type)
+  return(InflationDestatis)
+}
 
-
-InflationProg<-read_excel("Data/Gemeinschaftsdiagnose_inflation.xlsx")%>%
-  filter(time>=max(InflationDestatis$time))
-
-# InflationData<-rbind(InflationDestatis,InflationProg)%>%
-#   #tooltip text
-#   mutate(
-#     time_label   = paste(year(time), month(time,label=TRUE)),
-#     tooltip = glue(
-#       "<span><b>{time_label}</b><br>",
-#       "Inflation: {scales::number(inflation,  accuracy = 0.1, decimal.mark = ',')}<br>",
-#       "{type}",
-#       "</span>"
-#     )
-#   )
 ```
 
 
 
 ```{r}
-## ── build the input frame (unchanged) ──────────────────────────────────
+
+plotInflation<-function(data,filename="Bundesausgaben",path="output/GBTJuni2025/",language="DE",width=577.7,height=519.75){
+
+InflationDestatis<-genInflationDestatis()
+
+
+InflationProg<-read_excel("Data/Gemeinschaftsdiagnose_inflation.xlsx")%>%
+  filter(time>=max(InflationDestatis$time))
+
 InflationData <- bind_rows(InflationDestatis, InflationProg) %>% 
   mutate(
     time_label = paste(year(time), month(time, label = TRUE)),
     tooltip    = glue(
-      #"<span><b>{time_label}</b><br>",
-      "Inflation: {scales::number(inflation,  accuracy = 0.1, decimal.mark = ',')}"#,
-     # "{type}</span>"
+      "Inflation: {scales::number(inflation,  accuracy = 0.1, decimal.mark = ',')}"
     )
-  )
+  )    
+  
 
-
-## ── plotly version (mirrors your BIP layout) ───────────────────────────
 InflationPlotly <- plot_ly(
-  # data  = InflationData,
-  # x     = ~time,
-  # y     = ~inflation,
-  # type  = "scatter",
-  # mode  = "lines",
-  # line  = list(color = "#ee6174", dash = "dot"),  # dotted baseline
-  # hoverinfo  = "skip",
-  # showlegend = FALSE
+ height=height,
+  width=width
 ) %>% 
 
   ## markers with text-only tooltip
@@ -328,21 +306,6 @@ InflationPlotly <- plot_ly(
     hovertemplate = "%{text}<extra></extra>",
     name="Gemeinschaftsdiagnose"
   ) %>% 
-
-
-  ## solid Destatis line
-  # add_trace(
-  #   data   = InflationDestatis,
-  #   inherit = FALSE,
-  #   x      = ~time,
-  #   y      = ~inflation,
-  #   type   = "scatter",
-  #   mode   = "lines",
-  #   line   = list(color = "#ee6174"),
-  #   hoverinfo  = "skip",
-  #   showlegend = FALSE
-  # ) %>% 
-
   ## horizontal reference at 2 %
   layout(
     shapes = list(
@@ -354,38 +317,39 @@ InflationPlotly <- plot_ly(
       )
     )
   ) %>% 
-
-  ## Dezernat-style helper (same as for BIP)
   plotlyLayoutDZ(
     title         = "Preisniveau",
     subtitle      = "Änderung ggü. Vorjahresmonat in Prozent",
-    ylim          = c(- 2.1, 10.1),        # mimics expand = c(.004, .004)
+    ylim          = c(- 2.1, 10.25),
+    ytickdist = 2,
     xlim=c(ymd("2014-12-01"),ymd("2026-11-30")),
     includeLegend = TRUE,
     tooltip_size  = 16,
-    hoverdistance = 10,#,
+    hoverdistance = 5,
+    margin_top=70,
    # hovermode     = "closest"
    hoverformat="%b %Y",
    toImageButton=TRUE
   )
 
-InflationPlotly
+InflationPlotly<- partial_bundle(InflationPlotly)
 
 
-htmlwidgets::saveWidget(widget = InflationPlotly, file="Inflation.html",selfcontained = TRUE)
+htmlwidgets::saveWidget(widget = InflationPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+
+plotInflation(InflationData,"Inflation")
 ```
 
 
 
-## Beschäftigung
-- Sozialversicherungspflichtige Beschäftigte https://www-genesis.destatis.de/datenbank/online/statistic/13111/table/13111-0004/table-toolbar/search/s/QmVzY2glQzMlQTRmdGlndGU= 
-- VGR des Bundes - Erwerbstätigkeit, Löhne und Gehälter, Arbeitsstunden: Deutschland, Quartale, Original- und bereinigte Daten, Wirtschaftsbereiche - (Table:81000-0016,Cube:81000BV003)
-- 
-
 ##Erwerbstätige
-Auch ansonsten potenziell ergibiger Cube
+- VGR des Bundes - Erwerbstätigkeit, Löhne und Gehälter, Arbeitsstunden: Deutschland, Quartale, Original- und bereinigte Daten, Wirtschaftsbereiche - (Table:81000-0016,Cube:81000BV003)
+
 ```{r}
-VGRBundWZ<-gen_cube("81000BV003")%>%
+plotErwerbstätige<-function(filename="Erwerbstätige",path="output/GBTJuni2025/",language="DE",width=577.7,height=519.75){
+  
+ErwerbstätigeDestatis<-gen_cube("81000BV003")%>%
   mutate(
     quart=gsub("QUART(.)","\\1\\2",QUARTG)%>%as.numeric(),
     year=JAHR,
@@ -408,40 +372,31 @@ VGRBundWZ<-gen_cube("81000BV003")%>%
   mutate(
     Sektor=plyr::revalue(Sektor,c("A"="Land- und Forstwirtschaft, Fischerei","B-05"="produzierendes Gewerbe","G-04"="Dienstleistungsbereiche")),
     Sektor=factor(Sektor,levels = c("Land- und Forstwirtschaft, Fischerei","produzierendes Gewerbe","Dienstleistungsbereiche"))
-    )
-
-
-#gen_metadata_cube("81000BV003","genesis")
-```
-
-Plotting Erwerbstätige
-```{r}
-
-
-#prep data (tooltip)
-ErwerbstätigeDestatis <- VGRBundWZ %>%
+    )%>%
   mutate(
     Sektor=plyr::revalue(Sektor,c("Land- und Forstwirtschaft, Fischerei"="Agrarsektor",
                                   "produzierendes Gewerbe"="Industrie",
                                   "Dienstleistungsbereiche"="Dienstleistungen")),
     tooltip = glue(
       "<span>",
-      "{Sektor}: {round(Erwerbstätige, 1)} Mio.</span>"
+      "{Sektor}: {scales::number(Erwerbstätige, accuracy = 0.1, decimal.mark = ',',big.mark='.')} Mio.</span>"
     )
   )%>%
   select(time,Sektor,Erwerbstätige,tooltip)%>%
-  filter(time>="2010-01-01")
+  filter(time>="2010-01-01") 
 
 ErwerbstätigeProg<-read_excel("Data/Gemeinschaftsdiagnose_Erwerbstätige.xlsx")%>%
   mutate(
     tooltip = glue(
       "<span>",
-      "Erwerbstätige: {round(Erwerbstätige, 1)} Mio.<br>",
+      "Erwerbstätige: {scales::number(Erwerbstätige, accuracy = 0.1, decimal.mark = ',',big.mark='.')} Mio.<br>",
       "Prognose Gemeinschaftsdiagnose</span>"
     )
   )
-
+  
 ErwerbstätigePlotly<-plot_ly(
+  width = width,
+  height = height,
   data        = ErwerbstätigeDestatis,
   x           = ~time,
   y           = ~Erwerbstätige,
@@ -474,17 +429,19 @@ ErwerbstätigePlotly<-plot_ly(
   plotlyLayoutDZ(title="Beschäftigte",
                  subtitle="Saisonbereinigt in Mio.",
                  ylim=c(0,51),
+                 ytickdist=5,
                  xlim=c(ymd("2015-01-01"),ymd("2027-01-30")),
                  includeLegend = TRUE,
                  tooltip_size=16,
                  hoverdistance = 10,
+                 margin_top=70,
                  tooltip_bordercolor="white",
                  hoverformat = "%Y Q%q")
 
-
-
-ErwerbstätigePlotly
-htmlwidgets::saveWidget(widget = ErwerbstätigePlotly, file="Erwerbstätige.html",selfcontained = TRUE)
+ErwerbstätigePlotly<-partial_bundle(ErwerbstätigePlotly)
+htmlwidgets::saveWidget(widget = ErwerbstätigePlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+plotErwerbstätige("Erwerbstätige")
 ```
 
 
@@ -501,6 +458,7 @@ https://ec.europa.eu/eurostat/databrowser/view/tps00172__custom_16476444/default
 Offene Stellen (Industrie, Service) https://ec.europa.eu/eurostat/databrowser/view/jvs_q_nace2__custom_16476466/default/table?lang=en
 
 ```{r}
+plotArbeitsloseReserve<-function(filename="Ewerbstätige",path="output/GBTJuni2025/",language="DE",width=577.7,height=519.75){
 ArbeitsloseUnterbeschäftigteBA<-read_excel("Data/ArbeitslosigkeitUnterbeschäftigung_BundesagenturArbeit.xlsx")%>%
   mutate(
     across(where(is.numeric),~./1000000),
@@ -513,7 +471,7 @@ ArbeitsloseUnterbeschäftigteBA<-read_excel("Data/ArbeitslosigkeitUnterbeschäft
     tooltip =
       glue(
       "<span>",
-      "{variable}: {round(values, 1)} Mio.</span>"
+      "{variable}: {scales::number(values, accuracy = 0.1, decimal.mark = ',',big.mark='.')} Mio.</span>"
     )
   )%>%
   filter(time>="2015-01-01")
@@ -532,7 +490,7 @@ OffeneStellenEurostat<-eurostat::get_eurostat("jvs_q_nace2", time_format = "date
   mutate(
     tooltip = glue(
       "<span>",
-      "Offene Stellen: {round(Insgesamt, 1)} Mio.</span>",
+      "Offene Stellen: {scales::number(Insgesamt, accuracy = 0.1, decimal.mark = ',',big.mark='.')} Mio.</span>",
       "</span>"
     )
   )%>%
@@ -551,7 +509,7 @@ ArbeitsloseProg<-read_excel("Data/Gemeinschaftsdiagnose_Arbeitslose.xlsx")%>%
     ArbeitsloseProg=ArbeitsloseProg/1000,
     tooltip = glue(
       "<span>",
-      "Arbeitslose: {round(ArbeitsloseProg, 1)} Mio.<br>",
+      "Arbeitslose: {scales::number(ArbeitsloseProg, accuracy = 0.1, decimal.mark = ',',big.mark='.')} Mio.<br>",
       "Prognose Gemeinschaftsdiagnose",
       "</span>"
     )
@@ -559,6 +517,8 @@ ArbeitsloseProg<-read_excel("Data/Gemeinschaftsdiagnose_Arbeitslose.xlsx")%>%
 
 
 ArbeitslosePlotly<-plot_ly(
+  width=width,
+  height = height,
   data        = ArbeitsloseUnterbeschäftigteBA,
   x           = ~time,
   y           = ~values,
@@ -605,16 +565,20 @@ ArbeitslosePlotly<-plot_ly(
   
   plotlyLayoutDZ(title="Arbeitslose, Unterbeschäftigte und offene Stellen",
                  subtitle="Saisonbereinigt in Mio.",
-                 ylim=c(0,4.1),
+                 ylim=c(0,4.07),
                  xlim=c(ymd("2014-12-01"),ymd("2026-10-30")),
                  includeLegend = TRUE,
                  tooltip_size=16,
+                 margin_top = 70,
                  hoverdistance = 10,
                  tooltip_bordercolor="white")
 
-ArbeitslosePlotly
+ArbeitslosePlotly<-partial_bundle(ArbeitslosePlotly)
 
-htmlwidgets::saveWidget(widget = ArbeitslosePlotly, file="Arbeitslose.html",selfcontained = TRUE)
+htmlwidgets::saveWidget(widget = ArbeitslosePlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+
+plotArbeitsloseReserve("ArbeitsloseReserve")
 ```
 
 
@@ -642,10 +606,8 @@ https://www-genesis.destatis.de/datenbank/online/statistic/62361/table/62361-003
 
 
 ```{r}
-#cubes<-gen_find("Produktivität","genesis","cubes")[[1]]
-#gen_metadata_cube("81000BV013","genesis")
-
-ProduktivitätLöhneDestatis<-gen_cube("81000BV013")%>%
+plotLöhne<-function(filename="Ewerbstätige",path="output/GBTJuni2025/",language="DE",width=577.7,height=519.75){
+LöhneDestatis<-gen_cube("81000BV013")%>%
   mutate(
     quart=gsub("QUART(.)","\\1\\2",QUARTG)%>%as.numeric(),
     year=JAHR,
@@ -664,8 +626,9 @@ ProduktivitätLöhneDestatis<-gen_cube("81000BV013")%>%
     Sektor=factor(Sektor,levels = c("produzierendes Gewerbe","Dienstleistungsbereiche"))
     )
 
+InflationDestatis<-genInflationData()
 
-ProduktivitätLöhneDestatis<-ProduktivitätLöhneDestatis%>%left_join(InflationDestatis,by="time")%>%
+LöhneDestatis<-LöhneDestatis%>%left_join(InflationDestatis,by="time")%>%
 select(-c(inflation,type))%>%
   mutate(
     BruttolöhneProArbeitsstundeReal=BruttolöhneProArbeitsstunde/(preisindex/100),
@@ -673,21 +636,21 @@ select(-c(inflation,type))%>%
 
 
 timedist<-time_length(interval("2015-03-01", "2019-12-01"), "month")/3
-LöhneDienstleistung2015Q1<-ProduktivitätLöhneDestatis%>%filter(time=="2015-03-01",Sektor=="Dienstleistungsbereiche")%>%pull(BruttolöhneProArbeitsstundeReal)
-LöhneDienstleistung2019Q4<-ProduktivitätLöhneDestatis%>%filter(time=="2019-12-01",Sektor=="Dienstleistungsbereiche")%>%pull(BruttolöhneProArbeitsstundeReal)
+LöhneDienstleistung2015Q1<-LöhneDestatis%>%filter(time==ymd("2015-03-01"),Sektor=="Dienstleistungsbereiche")%>%pull(BruttolöhneProArbeitsstundeReal)
+LöhneDienstleistung2019Q4<-LöhneDestatis%>%filter(time==ymd("2019-12-01"),Sektor=="Dienstleistungsbereiche")%>%pull(BruttolöhneProArbeitsstundeReal)
 AvgGrowthLöhneDienstleistung15_19<-((LöhneDienstleistung2019Q4/LöhneDienstleistung2015Q1)^(1/timedist)-1)#average quarterly growth rate between 2011Q1 and 2019Q4
-LöhneproGew2015Q1<-ProduktivitätLöhneDestatis%>%filter(time=="2015-03-01",Sektor=="produzierendes Gewerbe")%>%pull(BruttolöhneProArbeitsstundeReal)
-LöhneproGew2019Q4<-ProduktivitätLöhneDestatis%>%filter(time=="2019-12-01",Sektor=="produzierendes Gewerbe")%>%pull(BruttolöhneProArbeitsstundeReal)
+LöhneproGew2015Q1<-LöhneDestatis%>%filter(time==ymd("2015-03-01"),Sektor=="produzierendes Gewerbe")%>%pull(BruttolöhneProArbeitsstundeReal)
+LöhneproGew2019Q4<-LöhneDestatis%>%filter(time==ymd("2019-12-01"),Sektor=="produzierendes Gewerbe")%>%pull(BruttolöhneProArbeitsstundeReal)
 AvgGrowthLöhneproGew15_19<-((LöhneproGew2019Q4/LöhneproGew2015Q1)^(1/timedist)-1)#average quarterly growth rate between 2011Q1 and 2019Q4
 
 
 
-ProduktivitätLöhneDestatis<-ProduktivitätLöhneDestatis%>%
+LöhneDestatis<-LöhneDestatis%>%
   arrange(time)%>%
   mutate(
     timedist15Q1=round(time_length(interval("2015-01-01", time), "month")/3,0),
     BruttolöhneProArbeitsstundeTrend=case_when(time<="2015-01-01"~BruttolöhneProArbeitsstundeReal,
-                                          Sektor=="produzierendes Gewerbe"~(LöhneproGew2015Q1)*(1+AvgGrowthLöhneproGew15_19)^(timedist15Q1),
+                                          Sektor=="produzierendes Gewerbe" ~ (LöhneproGew2015Q1)*(1+AvgGrowthLöhneproGew15_19)^(timedist15Q1),
                                           Sektor=="Dienstleistungsbereiche"~(LöhneDienstleistung2015Q1)*(1+AvgGrowthLöhneDienstleistung15_19)^(timedist15Q1)),
     Sektor=plyr::revalue(Sektor,c("produzierendes Gewerbe"="Industrie","Dienstleistungsbereiche"="Dienstleistungen"))
   )%>%
@@ -700,17 +663,19 @@ ProduktivitätLöhneDestatis<-ProduktivitätLöhneDestatis%>%
     tooltip =
       glue(
       "<span>",
-      "{Sektor}: {scales::number(round(BruttolöhneProArbeitsstundeReal, 1))} € ({scales::number(round(LohnGrowth, 1),style_positive='plus')} % ggü. Vorquartal)</span>"
+      "{Sektor}: {scales::number(BruttolöhneProArbeitsstundeReal, accuracy = 0.1, decimal.mark = ',',big.mark='.')} € ({scales::number(LohnGrowth, accuracy = 0.1, decimal.mark = ',',big.mark='.',style_positive = 'plus')} % ggü. Vorquartal)</span>"
     ),
     tooltip_trend=
       glue(
       "<span>",
-      "{Sektor} Trend: {round(BruttolöhneProArbeitsstundeTrend, 1)} €</span>"
+      "{Sektor} Trend: {scales::number(BruttolöhneProArbeitsstundeTrend, accuracy = 0.1, decimal.mark = ',',big.mark='.')} €</span>"
     )
   )
 
 LöhnePlotly<-plot_ly(
-  data        = ProduktivitätLöhneDestatis,
+  width=width,
+  height=height,
+  data        = LöhneDestatis,
   x           = ~time,
   y           = ~BruttolöhneProArbeitsstundeReal,
   color       = ~Sektor,
@@ -724,7 +689,7 @@ LöhnePlotly<-plot_ly(
 )%>%
   add_trace(
     inherit=FALSE,
-  data=ProduktivitätLöhneDestatis%>%
+  data=LöhneDestatis%>%
     mutate(Sektor=plyr::revalue(Sektor,c("Industrie"="Industrie Trend","Dienstleistungen"="Dienstleistungen Trend"))),
   x           = ~time,
   y           = ~BruttolöhneProArbeitsstundeTrend,
@@ -735,22 +700,27 @@ LöhnePlotly<-plot_ly(
   hovertemplate = "%{text}<extra></extra>",
   type        = "scatter",
   mode        = "lines",       # no markers or lines → filled area only
-  line       = list(dash="dot"),
-  showlegend = FALSE
+  line       = list(dash="dot")
+  #showlegend = FALSE
   )%>%
   plotlyLayoutDZ(title="Bruttostundenlöhne",
                  subtitle="Preis, saison- und kalenderbereinigt, in Euro (2020er Preise)",
                  #hovermode="closest",
-                 ylim=c(23.9,38.1),
+                 ylim=c(23.9,38.5),
+                 ytickdist=2,
                  xlim=c(ymd("2014-12-01"),ymd("2025-01-30")),
                  includeLegend = TRUE,
                  tooltip_size=16,
+                 margin_top = 70,
                  hoverdistance = 10,
-                 toImageButton=TRUE
+                 toImageButton=TRUE,
+                 hoverformat = "%Y Q%q"
                  )
-LöhnePlotly
-htmlwidgets::saveWidget(widget = LöhnePlotly, file="Löhne.html",selfcontained = TRUE)
+LöhnePlotly<- partial_bundle(LöhnePlotly)
+htmlwidgets::saveWidget(widget = LöhnePlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
 
+plotLöhne("Löhne")
 ```
 
 
@@ -761,7 +731,7 @@ htmlwidgets::saveWidget(widget = LöhnePlotly, file="Löhne.html",selfcontained 
 ```{r}
 #cubes<-gen_find("Bruttoanlageinvestitionen","genesis","cubes")[[1]]
 #gen_metadata_cube("81000BV015","genesis")
-
+plotInvestitionen<-function(filename="Ewerbstätige",path="output/GBTJuni2025/",language="DE",width=577.7,height=519.75){
 BruttoanlageinvestitionenDestatis<-gen_cube("81000BV015","genesis")%>%
   mutate(
     quart=gsub("QUART(.)","\\1\\2",QUARTG)%>%as.numeric(),
@@ -779,13 +749,16 @@ BruttoanlageinvestitionenDestatis<-gen_cube("81000BV015","genesis")%>%
   pivot_longer(-time,values_to = "values",
                names_to = "variable")
 
+BIPdata<-genBIPData()
+
 BruttoanlageinvestitionenDestatis<-BruttoanlageinvestitionenDestatis%>%
-  left_join(BIPdata,by="time")%>%
-  summarise(
+  dplyr::left_join(BIPdata%>%filter(type=="Destatis"),by="time")%>%
+  mutate(
     time,
     variable,
     values=100*values/BIP
-  )
+  )%>%
+  select(time,variable,values)
 
 
 
@@ -817,16 +790,18 @@ BruttoanlageinvestitionenDestatis2<-BruttoanlageinvestitionenDestatis%>%
     tooltip =
       glue(
       "<span>",
-      "{variable}: {round(values, 1)} % des BIP<br> ({scales::number(round(InvestitionenGrowth, 1),style_positive='plus')} % ggü Vorquartal)</span>"
+      "{variable}: {scales::number(values, accuracy = 0.1, decimal.mark = ',',big.mark='.')} % des BIP<br> ({scales::number(InvestitionenGrowth,accuracy = 0.1, decimal.mark = ',',big.mark='.',style_positive='plus')} % ggü Vorquartal)</span>"
     ),
     tooltip_trend=
       glue(
       "<span>",
-      "{variable} Trend: {round(Trend, 1)} % des BIP</span>"
+      "{variable} Trend: {scales::number(Trend, accuracy = 0.1, decimal.mark = ',',big.mark='.')} % des BIP</span>"
     )
   )%>%arrange(time)
   
 BrottoanlageinvestitionenPlotly<-plot_ly(
+  width=width,
+  height = height,
   data        = BruttoanlageinvestitionenDestatis2,
   x           = ~time,
   y           = ~values,
@@ -861,15 +836,20 @@ BrottoanlageinvestitionenPlotly<-plot_ly(
   plotlyLayoutDZ(title="Bruttoanlageinvestitionen",
                  subtitle="Preis-, saison- und kalenderbereinigt in Prozent des BIP",
                  ylim=c(0,25.1),
-                 xlim=c(ymd("2014-12-01"),ymd("2024-11-01")),
+                 ytickdist=5,
+                 xlim=c(ymd("2014-12-01"),max(BruttoanlageinvestitionenDestatis$time)),
                  includeLegend = TRUE,
                  tooltip_size=16,
+                 margin_top = 50,
                  hoverdistance = 10,
+                 itemclick = "toggleothers",
                  tooltip_bordercolor="white",hoverformat="%Y Q%q")
 
-BrottoanlageinvestitionenPlotly
+BrottoanlageinvestitionenPlotly<- partial_bundle(BrottoanlageinvestitionenPlotly)
 
-htmlwidgets::saveWidget(widget = BrottoanlageinvestitionenPlotly, file="Bruttoanlageinvestitionen.html",selfcontained = TRUE)
+htmlwidgets::saveWidget(widget = BrottoanlageinvestitionenPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+plotInvestitionen("Investitionen")
 ```
 
 
@@ -880,8 +860,8 @@ htmlwidgets::saveWidget(widget = BrottoanlageinvestitionenPlotly, file="Bruttoan
 
 
 ```{r}
-gen_metadata_cube("81000BV013","genesis")
-ProduktivitätLöhneDestatis<-gen_cube("81000BV013")%>%
+plotProduktivität<-function(filename="Ewerbstätige",path="output/GBTJuni2025/",language="DE",width=577.7,height=519.75){
+ProduktivitätDestatis<-gen_cube("81000BV013")%>%
   mutate(
     quart=gsub("QUART(.)","\\1\\2",QUARTG)%>%as.numeric(),
     year=JAHR,
@@ -896,7 +876,7 @@ ProduktivitätLöhneDestatis<-gen_cube("81000BV013")%>%
   select(time,Sektor,BruttolöhneProArbeitsstunde,ProduktivitätJeErwerbstätigenStunde)%>%
   filter(Sektor%in%c("B-05","G-04"))
 
-ProduktivitätLöhneDestatis<-ProduktivitätLöhneDestatis%>%left_join(InflationDestatis,by="time")%>%
+ProduktivitätDestatis<-ProduktivitätDestatis%>%left_join(InflationDestatis,by="time")%>%
 select(-c(inflation,type))%>%
   mutate(
     ProduktivitätJeErwerbstätigenStunde=ProduktivitätJeErwerbstätigenStunde/(preisindex/100),
@@ -915,13 +895,15 @@ select(-c(inflation,type))%>%
     tooltip =
       glue(
       "<span>",
-      "{Sektor}: {scales::number(round(ProduktivitätWachstum, 1),style_positive='plus')} % ggü. Vorquartal</span>"
+      "{Sektor}: {scales::number(ProduktivitätWachstum,accuracy = 0.1, decimal.mark = ',',big.mark='.',style_positive='plus')} % ggü. Vorquartal</span>"
     )
   )%>%arrange(time)%>%
   filter(time>="2015-01-01")
 
 ProduktivitätPlotly<-plot_ly(
-  data        = ProduktivitätLöhneDestatis,
+  width = width,
+  height = height,
+  data        = ProduktivitätDestatis,
   x           = ~time,
   y           = ~ProduktivitätJeErwerbstätigenStunde,
   color       = ~Sektor,
@@ -935,97 +917,32 @@ ProduktivitätPlotly<-plot_ly(
 )%>%
   plotlyLayoutDZ(title="Arbeitsproduktivität je Erwerbstätigenstunde",
                  subtitle="Preis-, saison- und kalenderbereinigt, in Euro (2020er Preise)",
-                 ylim=c(44,66),
-                 xlim=c(ymd("2015-02-01"),ymd("2025-01-01")),
+                 ylim=c(44.5,65.5),
+                 ytickdist = 5,
+                 xlim=c(ymd("2015-02-01"),max(ProduktivitätDestatis$time)),
                  includeLegend = TRUE,
                  tooltip_size=16,
                  hoverdistance = 10,
+                 margin_top = 50,
                  tooltip_bordercolor="#ee6174",hoverformat="%Y Q%q")
 
-ProduktivitätPlotly
-htmlwidgets::saveWidget(widget = ProduktivitätPlotly, file="Produktivität.html",selfcontained = TRUE)
+ProduktivitätPlotly<- partial_bundle(ProduktivitätPlotly)
+htmlwidgets::saveWidget(widget = ProduktivitätPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+plotProduktivität("Produktivität")
 ```
 
 
 
-## Bundeshaushalt
-```{r}
-BundeshaushaltData<-read_excel("Data/BundeshaushaltSubventionenZinsausgaben.xlsx")%>%
-  pivot_longer(-Jahr,names_to=c("variable","unit"),names_pattern = "(.*)_(.*)",values_to = "values")%>%
-  pivot_wider(values_from = "values",names_from = "unit")%>%
-  mutate(
-    tooltip = glue(
-      "<span>",
-      "{variable}: {round(Mrd, 1)} Mrd. € ({round(PcGDP, 1)} %).</span>"
-    )
-  )
-
-BundeshaushaltKategorien<-BundeshaushaltData%>%filter(variable!="Haushaltsvolumen")%>%
-  mutate(
-    variable=factor(variable,levels=c("Subventionen (Soll)","Nutzleistungen (Soll)","Zinsausgaben (Soll)"))
-    )
-
-BundeshaushaltHaushaltsvolumen<-BundeshaushaltData%>%filter(variable=="Bundesausgaben (Ist)")
-
-
-
-BundeshaushaltPlotly<-plot_ly(
-  width=577.7,
-  height=519.75,
-  data        = BundeshaushaltKategorien,
-  x           = ~Jahr,
-  y           = ~PcGDP,
-  color       = ~variable,
-  colors      = c("#333C91","#ee6174","#88536f"),
-  text        = ~tooltip,
-  hoverinfo   = "text",
-  hovertemplate = "%{text}<extra></extra>",
-  type        = "scatter",
-  mode        = "lines+markers",        # no markers or lines → filled area only
-  #line       = list(width = 0),
-  stackgroup  = "Bundeshaushalt"
-)%>%
-  add_trace(
-    type="scatter", 
-    inherit=FALSE,
-    data  = BundeshaushaltHaushaltsvolumen,
-    x     = ~Jahr,
-    y     = ~PcGDP,
-   # fillcolor="black",
-    #fill="tozero",
-    text=~tooltip,
-    hoverinfo="text",
-    hovertemplate = "%{text}<extra></extra>",
-    mode="lines+markers",
-    name="Bundesausgaben (Ist)",
-    line=list(color="#181c44",width=2,dash="solid"),
-    marker=list(color="#181c44")#,
-  #  showlegend=FALSE
-  )%>%
-  plotlyLayoutDZ(title="Bundesausgaben",
-                 subtitle="In Prozent des BIP",
-                 ylim=c(0,20.1),
-                 xlim=c(2013.9,2025.1),
-                 ytickdist=2,
-                 includeLegend = TRUE,
-                 tooltip_size=16,
-                 hoverdistance = 10,
-                 margin_top = 68,
-                 tooltip_bordercolor="white")
-
-BundeshaushaltPlotly
-
-htmlwidgets::saveWidget(widget = BundeshaushaltPlotly, file="BundesausgabenOld.html",selfcontained = TRUE)
-```
 
 
 # Haushaltsanalyse
 ```{r}
-HaushaltsanalysePcBIP<-read_excel("Data/Haushaltsanalyse v10.xlsx",sheet = 1,range = "A1:P71")%>% #adjust range if column added
+HaushaltsanalysePcBIP<-read_excel("Data/Haushaltsanalyse v16.xlsx",sheet = 1,range = "A1:P63")%>% #adjust range if column added
   filter(!is.na(Aggregat))%>%
   select(-'ID/Code')
 
-HaushaltsanalyseMrdEur<-read_excel("Data/Haushaltsanalyse v10.xlsx",sheet = 2,range = "A1:P71")%>% #adjust range if column added
+HaushaltsanalyseMrdEur<-read_excel("Data/Haushaltsanalyse v16.xlsx",sheet = 2,range = "A1:P63")%>% #adjust range if column added
   filter(!is.na(Aggregat))%>%
   select(-'ID/Code')
 
@@ -1041,31 +958,33 @@ HaushaltsanalyseData<-rbind(HaushaltsanalysePcBIP,HaushaltsanalyseMrdEur)%>%
 ## Bundesausgaben
 ```{r}
 #TODO: make English
-plotBundesausgaben<-function(data,filename,path="output/Juni2025",language="DE",with=577.7,height=519.75){
+plotBundesausgaben<-function(data,filename="Bundesausgaben",path="output/Haushaltsanalyse_Juni2025/",language="DE",width=577.7,height=519.75){
 BundesausgabenData<-data%>%
   filter(Aggregat=="Gesamtausgaben des Bundes")%>%
   mutate(
-    variable=plyr::revalue(Titel,c("Sonstiges"="Sonstiges\n (inkl. globale Minderausgabe)",
-                                   "Verwaltung (inkl. Sicherheitsbehörden)"="Verwaltung\n (inkl. Sicherheitsbehörden)",
+    variable=plyr::revalue(Titel,c("Sonstiges"="Sonstiges",
+                                   "Verwaltung"="Verwaltung",
                                 "Historische Ereignisse & Altlasten"="Hist. Ereignisse & Altlasten",
                                 "Zinsen"="Zinsen",
                                 "Internationales"="Internationales",
                                 "Verteidigung"="Verteidigung",
-                                "Öffentliche Leistungen"="Öff. Leistungen",
-                                "Subventionen an Haushalte & Unternehmen"="Subventionen\n (Haushalte & Unternehmen)"
+                                "Öffentliche Leistungen"="Öffentliche Leistungen",
+                                "Subventionen an Haushalte"="Subventionen Haushalte",
+                                "Subventionen an Unternehmen"="Subventionen Unternehmen"
                                 )),
-    variable=factor(variable,levels=c("Sonstiges\n (inkl. globale Minderausgabe)",
-                                "Subventionen\n (Haushalte & Unternehmen)",
-                                "Verwaltung\n (inkl. Sicherheitsbehörden)",
-                                "Zinsen",
-                                "Internationales",
+    variable=factor(variable,levels=c("Sonstiges",
+                                "Subventionen Haushalte",
+                                "Subventionen Unternehmen",
+                                "Öffentliche Leistungen",
                                 "Verteidigung",
-                                "Öff. Leistungen",
+                                "Internationales",
+                                "Zinsen",
+                                "Verwaltung",
                                 "Hist. Ereignisse & Altlasten"
                                 )),
     tooltip = glue(
       "<span>",
-      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+      "{Titel}: {scales::number(MrdEUR,  accuracy = 0.1, decimal.mark = ',')} Mrd. € ({scales::number(PcBIP,  accuracy = 0.1, decimal.mark = ',')} %).</span>"
     )
   )
 
@@ -1076,7 +995,7 @@ BundesausgabenPlotly<-plot_ly(
   x           = ~Jahr,
   y           = ~PcBIP,
   color       = ~variable,
-  colors      = c("#BFBFBF","#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776"),
+  colors      = c("#918AB2","#333C91","#656EC8","#EE6174","#88536F","#BD93A9","#BE4772","#A65FB6","#D9D9D9"),
   text        = ~tooltip,
   hoverinfo   = "text",
   hovertemplate = "%{text}<extra></extra>",
@@ -1087,30 +1006,34 @@ BundesausgabenPlotly<-plot_ly(
 )%>%
   plotlyLayoutDZ(title="Gesamtausgaben des Bundes",
                  subtitle="In Prozent des BIP",
-                 ylim=c(-2.1,16.1),
+                 ylim=c(-2.1,16.4),
                  ytickdist=2,
                  #xlim=c(2013.9,2025.1),
                  includeLegend = TRUE,
                  tooltip_size=16,
-                 hoverdistance = 10,
-                 margin_top = 140,
+                 hoverdistance = 40,
+                 margin_top = 135,
                  tooltip_bordercolor="white")
 
 BundesausgabenPlotly<-partial_bundle(BundesausgabenPlotly)
 
-htmlwidgets::saveWidget(widget = BundesausgabenPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "Plotlydependencies")
+htmlwidgets::saveWidget(widget = BundesausgabenPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
 }
+
+plotBundesausgaben(HaushaltsanalyseData,filename="Bundesausgaben")
 ```
 
 ## Bundeseinnahmen
 ```{r}
-BundeseinnahmenData<-HaushaltsanalyseData%>%
+plotBundeseinnahmen<-function(data,filename,path="output/Haushaltsanalyse_Juni2025/",language="DE",width=577.7,height=519.75){
+BundeseinnahmenData<-data%>%
   filter(Aggregat=="Gesamteinnahmen des Bundes")%>%
   mutate(
-    variable=factor(Titel,levels=c("Umsatz- & Einfuhrumsatzsteuer",
-                                   "Einkommen- & Lohnsteuer",
-                                   "Kapitalertragssteuer",
+    variable=factor(Titel,levels=c(
+                                  "Einkommen- & Lohnsteuer",
+                                   "Kapitalertragsteuer",
                                    "Körperschaftsteuer",
+                                   "Umsatzsteuer (inkl. Einfuhr-)",
                                    "Energiesteuern",
                                    "Sonstige Steuern",
                                    "Sonstige Einnahmen",
@@ -1120,18 +1043,18 @@ BundeseinnahmenData<-HaushaltsanalyseData%>%
                     ),
     tooltip = glue(
       "<span>",
-      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+      "{Titel}: {scales::number(MrdEUR,  accuracy = 0.1, decimal.mark = ',')} Mrd. € ({scales::number(PcBIP,  accuracy = 0.1, decimal.mark = ',')} %).</span>"
     )
   )
 
 BundeseinnahmenPlotly<-plot_ly(
-  width=577.7,
-  height=519.75,
+  width=width,
+  height=height,
   data        = BundeseinnahmenData,
   x           = ~Jahr,
   y           = ~PcBIP,
   color       = ~variable,
-  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776","#BFBFBF"),
+  colors      = c("#333C91","#BE4772","#88536F","#BD93A9","#D3B7C6","#918AB2","#A65FB6","#EE6174"),
   text        = ~tooltip,
   hoverinfo   = "text",
   hovertemplate = "%{text}<extra></extra>",
@@ -1142,23 +1065,28 @@ BundeseinnahmenPlotly<-plot_ly(
 )%>%
   plotlyLayoutDZ(title="Gesamteinnahmen des Bundes",
                  subtitle="In Prozent des BIP",
-                 ylim=c(-0.1,20.1),
+                 ylim=c(-0.1,16.4),
                  ytickdist=2,
                  #xlim=c(2013.9,2025.1),
                  includeLegend = TRUE,
                  tooltip_size=16,
-                 hoverdistance = 10,
-                 margin_top = 120,
+                 hoverdistance = 40,
+                 margin_top = 115,
                  tooltip_bordercolor="white")
 
 BundeseinnahmenPlotly<-partial_bundle(BundeseinnahmenPlotly)
 
-htmlwidgets::saveWidget(widget = BundeseinnahmenPlotly, file="Bundeseinnahmen.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+
+htmlwidgets::saveWidget(widget = BundeseinnahmenPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+
+plotBundeseinnahmen(HaushaltsanalyseData,filename="Bundeseinnahmen")
 ```
 
 
 ## Investitionen des Bundes
 ```{r}
+plotBundesinvestitionen<-function(data,filename,path="output/Haushaltsanalyse_Juni2025/",language="DE",width=577.7,height=519.75){
 BundesinvestitionenData<-HaushaltsanalyseData%>%
   filter(Aggregat=="Investitionen des Bundes")%>%
   mutate(
@@ -1186,8 +1114,8 @@ InvestitionenOrder<-BundesinvestitionenData%>%filter(Jahr==2025 & Titel!="Sonsti
   arrange(-PcBIP)%>%pull(Titel)
 
 BundesinvestitionenPlotly<-plot_ly(
-  width=577.7,
-  height=519.75,
+  width=width,
+  height=height,
   data        = BundesinvestitionenData,
   x           = ~Jahr,
   y           = ~PcBIP,
@@ -1208,36 +1136,40 @@ BundesinvestitionenPlotly<-plot_ly(
                  #xlim=c(2013.9,2025.1),
                  includeLegend = TRUE,
                  tooltip_size=16,
-                 hoverdistance = 10,
+                 hoverdistance = 40,
                  margin_top = 130,
                  tooltip_bordercolor="white")
 
 BundesinvestitionenPlotly<-partial_bundle(BundesinvestitionenPlotly)
 
-htmlwidgets::saveWidget(widget = BundesinvestitionenPlotly, file="Bundesinvestitionen.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+htmlwidgets::saveWidget(widget = BundesinvestitionenPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+
+plotBundesinvestitionen(HaushaltsanalyseData,filename="Bundesinvestitionen")
 ```
 
 ## Öffentliche Leistungen des Bundes
 ```{r}
-ÖffentlicheLeistungenData<-HaushaltsanalyseData%>%
+plotÖffentlicheLeistungen<-function(data,filename,path="output/Haushaltsanalyse_Juni2025/",language="DE",width=577.7,height=519.75){
+ÖffentlicheLeistungenData<-data%>%
   filter(Aggregat=="Öffentliche Leistungen")%>%
   mutate(
     #variable=Titel,
     variable=factor(Titel,levels=c("Verkehr",
-                                   "Forschung & Entwicklung",
-                                   "Klima",
                                    "Wohnen & Stadtentwicklung",
+                                   "Klima & Energie",
                                    "Digitales",
+                                   "Forschung & Entwicklung",
                                    "Bildung",
-                                   "Demokratie & Kultur",
-                                   "Integration",
                                    "Gesundheit",
+                                   "Integration",
+                                   "Demokratie & Kultur",
                                    "Sonstiges"    
                                    ),
                    ),
     tooltip = glue(
       "<span>",
-      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+      "{Titel}: {scales::number(MrdEUR,  accuracy = 0.1, decimal.mark = ',')} Mrd. € ({scales::number(PcBIP,  accuracy = 0.1, decimal.mark = ',')} %).</span>"
     )
   )
 
@@ -1245,13 +1177,13 @@ htmlwidgets::saveWidget(widget = BundesinvestitionenPlotly, file="Bundesinvestit
   arrange(-PcBIP)%>%pull(Titel)
 
 ÖffentlicheLeistungenPlotly<-plot_ly(
-  width=577.7,
-  height=519.75,
+  width=width,
+  height=height,
   data        = ÖffentlicheLeistungenData,
   x           = ~Jahr,
   y           = ~PcBIP,
   color       = ~variable,
-  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776","#A65FBD","#BFBFBF"),
+  colors      = c("#333C91","#656EC8","#88536F","#BE4772","#BD93A9","#918AB2","#A65FB6","#D891AD","#EE6174","#CDCADC"),
   text        = ~tooltip,
   hoverinfo   = "text",
   hovertemplate = "%{text}<extra></extra>",
@@ -1262,39 +1194,43 @@ htmlwidgets::saveWidget(widget = BundesinvestitionenPlotly, file="Bundesinvestit
 )%>%
   plotlyLayoutDZ(title="Öffentliche Leistungen des Bundes",
                  subtitle="In Prozent des BIP",
-                 ylim=c(-0.1,2.1),
+                 ylim=c(-0.1,2.07),
                  ytickdist=0.5,
                  #xlim=c(2013.9,2025.1),
                  includeLegend = TRUE,
                  tooltip_size=16,
-                 hoverdistance = 10,
-                 margin_top = 130,
+                 hoverdistance = 40,
+                 margin_top = 135,
                  tooltip_bordercolor="white")
 
 ÖffentlicheLeistungenPlotly<-partial_bundle(ÖffentlicheLeistungenPlotly)
 
-htmlwidgets::saveWidget(widget = ÖffentlicheLeistungenPlotly, file="ÖffentlicheLeistungen.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+htmlwidgets::saveWidget(widget = ÖffentlicheLeistungenPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+
+plotÖffentlicheLeistungen(HaushaltsanalyseData,filename="ÖffLeist")
 ```
 
 ## Subventionen des Bundes an Haushalte
 ```{r}
-SubventionenHaushalteData<-HaushaltsanalyseData%>%
+plotSubventionenHaushalte<-function(data,filename,path="output/Haushaltsanalyse_Juni2025/",language="DE",width=577.7,height=519.75){
+SubventionenHaushalteData<-data%>%
   filter(Aggregat=="Subventionen an Haushalte")%>%
   mutate(
     #variable=Titel,
     variable=factor(Titel,levels=c("Rente",
                                    "Arbeitslosigkeit",
                                    "Gesundheit & Pflege",
-                                   "Gebäudeförderung",
                                    "Familien",
                                    "Wohnen",
+                                   "Gebäudeförderung",
                                    "Bildung",
                                    "Sonstiges"
                                    ),
                    ),
     tooltip = glue(
       "<span>",
-      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+      "{Titel}: {scales::number(MrdEUR,  accuracy = 0.1, decimal.mark = ',')} Mrd. € ({scales::number(PcBIP,  accuracy = 0.1, decimal.mark = ',')} %).</span>"
     )
   )
 
@@ -1302,13 +1238,13 @@ SubventionenHaushalteData%>%filter(Jahr==2025 & Titel!="Sonstiges")%>%
   arrange(-PcBIP)%>%pull(Titel)
 
 SubventionenHaushaltePlotly<-plot_ly(
-  width=577.7,
-  height=519.75,
+  width=width,
+  height=height,
   data        = SubventionenHaushalteData,
   x           = ~Jahr,
   y           = ~PcBIP,
   color       = ~variable,
-  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#918AB2","#BE4776","#A65FBD","#BFBFBF"),
+  colors      = c("#333C91","#656EC8","#B2B6E4","#BE4772","#88536F","#A65FB6","#E31834","#BD93A9"),
   text        = ~tooltip,
   hoverinfo   = "text",
   hovertemplate = "%{text}<extra></extra>",
@@ -1319,44 +1255,48 @@ SubventionenHaushaltePlotly<-plot_ly(
 )%>%
   plotlyLayoutDZ(title="Subventionen des Bundes an Haushalte",
                  subtitle="In Prozent des BIP",
-                 ylim=c(-0.1,8.1),
+                 ylim=c(-0.1,8.2),
                  ytickdist=2,
                  #xlim=c(2013.9,2025.1),
                  includeLegend = TRUE,
                  tooltip_size=16,
-                 hoverdistance = 10,
-                 margin_top = 100,
+                 hoverdistance = 55,
+                 margin_top = 115,
                  tooltip_bordercolor="white")
 
 SubventionenHaushaltePlotly<-partial_bundle(SubventionenHaushaltePlotly)
 
-htmlwidgets::saveWidget(widget = SubventionenHaushaltePlotly, file="SubventionenHaushalte.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+htmlwidgets::saveWidget(widget = SubventionenHaushaltePlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+plotSubventionenHaushalte(HaushaltsanalyseData,filename="SubHaushalte")
 ```
 
 
 ## Subventionen des Bundes an Unternehmen
 ```{r}
-SubventionenUnternehmenData<-HaushaltsanalyseData%>%
+plotSubventionenUnternehmen<-function(data,filename,path="output/Haushaltsanalyse_Juni2025/",language="DE",width=577.7,height=519.75){
+SubventionenUnternehmenData<-data%>%
   filter(Aggregat=="Subventionen an Unternehmen")%>%
   mutate(
     variable=plyr::revalue(Titel,c("Strompreise"="Strompreise",
                                    "Digitales"="Digitales",
                                    "Klima & Energie (ohne Strompreise)"="Klima & Energie\n (ohne Strompreise)",
-                                   "Sonstige Innovation & Forschung"="Sonst. Innovation & Forschung",
+                                   "Weitere Innovation & Forschung"="Sonst. Innovation & Forschung",
                                    "Land- & Forstwirtschaft"="Land- & Forstwirtschaft",
                                    "Sonstiges"="Sonstiges"
                                    )),
-    variable=factor(variable,levels=c("Strompreise",
-                                   "Digitales",
+    variable=factor(variable,levels=c(
+                                   "Land- & Forstwirtschaft",  
+                                   "Strompreise",
                                    "Klima & Energie\n (ohne Strompreise)",
-                                   "Sonst. Innovation & Forschung",
-                                   "Land- & Forstwirtschaft",   
+                                   "Digitales",
+                                   "Sonst. Innovation & Forschung", 
                                    "Sonstiges"
                                    ),
                    ),
     tooltip = glue(
       "<span>",
-      "{Titel}: {round(MrdEUR, 1)} Mrd. € ({round(PcBIP, 1)} %).</span>"
+      "{Titel}: {scales::number(MrdEUR,  accuracy = 0.1, decimal.mark = ',')} Mrd. € ({scales::number(PcBIP,  accuracy = 0.1, decimal.mark = ',')} %).</span>"
     )
   )
 
@@ -1364,13 +1304,13 @@ SubventionenUnternehmenData%>%filter(Jahr==2025 & Titel!="Sonstiges")%>%
   arrange(-PcBIP)%>%pull(Titel)
 
 SubventionenUnternehmenPlotly<-plot_ly(
-  width=577.7,
-  height=519.75,
+  width=width,
+  height=height,
   data        = SubventionenUnternehmenData,
   x           = ~Jahr,
   y           = ~PcBIP,
   color       = ~variable,
-  colors      = c("#ee6174","#333C91","#88536f","#36A9E1","#F39433","#BE4776","#A65FBD","#BFBFBF"),
+  colors      = c("#333C91","#88536f","#BE4776","#A65FBD","#ee6174","#918AB2"),
   text        = ~tooltip,
   hoverinfo   = "text",
   hovertemplate = "%{text}<extra></extra>",
@@ -1381,18 +1321,21 @@ SubventionenUnternehmenPlotly<-plot_ly(
 )%>%
   plotlyLayoutDZ(title="Subventionen des Bundes an Unternehmen",
                  subtitle="In Prozent des BIP",
-                 ylim=c(-0.02,1.02),
+                 ylim=c(-0.02,1.04),
                  ytickdist=0.2,
                  #xlim=c(2013.9,2025.1),
                  includeLegend = TRUE,
                  tooltip_size=16,
-                 hoverdistance = 10,
+                 hoverdistance = 40,
                  margin_top = 110,
                  tooltip_bordercolor="white")
 
 SubventionenUnternehmenPlotly<-partial_bundle(SubventionenUnternehmenPlotly)
 
-htmlwidgets::saveWidget(widget = SubventionenUnternehmenPlotly, file="SubventionenUnternehmen.html",selfcontained = FALSE,libdir = "Plotlydependencies")
+htmlwidgets::saveWidget(widget = SubventionenUnternehmenPlotly, file=paste0(path,filename,".html"),selfcontained = FALSE,libdir = "dependencies")
+}
+
+plotSubventionenUnternehmen(HaushaltsanalyseData,filename="SubUnternehmen")
 ```
 
 # Archiv
@@ -1487,6 +1430,76 @@ Inflation_plotly<-ggplot2plotly(Inflation_ggplot,"Inflation","Änderung gegenüb
 Inflation_plotly
 
 htmlwidgets::saveWidget(widget = Inflation_plotly, file="Inflation.html",selfcontained = FALSE)
+```
+
+## Bundeshaushalt alt
+```{r}
+BundeshaushaltData<-read_excel("Data/BundeshaushaltSubventionenZinsausgaben.xlsx")%>%
+  pivot_longer(-Jahr,names_to=c("variable","unit"),names_pattern = "(.*)_(.*)",values_to = "values")%>%
+  pivot_wider(values_from = "values",names_from = "unit")%>%
+  mutate(
+    tooltip = glue(
+      "<span>",
+      "{variable}: {round(Mrd, 1)} Mrd. € ({round(PcGDP, 1)} %).</span>"
+    )
+  )
+
+BundeshaushaltKategorien<-BundeshaushaltData%>%filter(variable!="Haushaltsvolumen")%>%
+  mutate(
+    variable=factor(variable,levels=c("Subventionen (Soll)","Nutzleistungen (Soll)","Zinsausgaben (Soll)"))
+    )
+
+BundeshaushaltHaushaltsvolumen<-BundeshaushaltData%>%filter(variable=="Bundesausgaben (Ist)")
+
+
+
+BundeshaushaltPlotly<-plot_ly(
+  width=577.7,
+  height=519.75,
+  data        = BundeshaushaltKategorien,
+  x           = ~Jahr,
+  y           = ~PcGDP,
+  color       = ~variable,
+  colors      = c("#333C91","#ee6174","#88536f"),
+  text        = ~tooltip,
+  hoverinfo   = "text",
+  hovertemplate = "%{text}<extra></extra>",
+  type        = "scatter",
+  mode        = "lines+markers",        # no markers or lines → filled area only
+  #line       = list(width = 0),
+  stackgroup  = "Bundeshaushalt"
+)%>%
+  add_trace(
+    type="scatter", 
+    inherit=FALSE,
+    data  = BundeshaushaltHaushaltsvolumen,
+    x     = ~Jahr,
+    y     = ~PcGDP,
+   # fillcolor="black",
+    #fill="tozero",
+    text=~tooltip,
+    hoverinfo="text",
+    hovertemplate = "%{text}<extra></extra>",
+    mode="lines+markers",
+    name="Bundesausgaben (Ist)",
+    line=list(color="#181c44",width=2,dash="solid"),
+    marker=list(color="#181c44")#,
+  #  showlegend=FALSE
+  )%>%
+  plotlyLayoutDZ(title="Bundesausgaben",
+                 subtitle="In Prozent des BIP",
+                 ylim=c(0,20.1),
+                 xlim=c(2013.9,2025.1),
+                 ytickdist=2,
+                 includeLegend = TRUE,
+                 tooltip_size=16,
+                 hoverdistance = 10,
+                 margin_top = 68,
+                 tooltip_bordercolor="white")
+
+BundeshaushaltPlotly
+
+htmlwidgets::saveWidget(widget = BundeshaushaltPlotly, file="BundesausgabenOld.html",selfcontained = TRUE)
 ```
 
 
@@ -1858,4 +1871,6 @@ StundenlohnPlotly<-plot_ly(
 
 StundenlohnPlotly
 ```
+
+
 
